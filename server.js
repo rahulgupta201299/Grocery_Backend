@@ -1,6 +1,9 @@
 import express from 'express'
 import mongoose from 'mongoose'
-
+import {OAuth2Client} from 'google-auth-library'
+import nodemailer from 'nodemailer'
+import passwordHash from 'password-hash'
+const client=new OAuth2Client('177141942485-mbmruj6ns91r1e8eh02vnm05m3gonop8.apps.googleusercontent.com')
 const connection_url="mongodb+srv://rahul2012999:Rahul@1234@cluster0.uqevw.mongodb.net/myFirstDatabase?retryWrites=true&w=majority"
 const app=express()
 
@@ -15,11 +18,12 @@ mongoose.connect(connection_url,{
     useUnifiedTopology: true
 })
 const port=process.env.PORT||8000
+app.use(express.static('../ecommerce/build'))
+
+app.use(express.json())
 app.get('/',(req,res)=>{
     res.status(200).send('')
 })
-app.use(express.json())
-
 const ProductSchema=mongoose.Schema({
     category: String,
     SubCategory: String,
@@ -82,5 +86,193 @@ app.get('/products/FindsubCategory/:id',(req,res)=>{
        res.status(200).send(ans)
     })
     
+})
+const UserSchema=mongoose.Schema({
+    time : { type : Date, default: Date.now },
+    name: String,
+    email: String,
+    password: {
+        type: String,select: true
+    },
+    verified: Boolean
+})
+const Users=mongoose.model("users",UserSchema)
+const googleSchema=mongoose.Schema({
+    time : { type : Date, default: Date.now },
+    name: String,
+    email: String,
+    verified: Boolean
+})
+const googleUser=mongoose.model('googleloginusers',googleSchema)
+app.post("/api/googlelogin",(req,res)=>{
+    const {tokenID}=req.body
+    client.verifyIdToken({idToken: tokenID,audience: '177141942485-mbmruj6ns91r1e8eh02vnm05m3gonop8.apps.googleusercontent.com'}).then(response=>{
+        const {email_verified,name,email}=response.payload
+        if(email_verified){
+            googleUser.find({email:email},(err,data)=>{
+                if(err){
+                    res.status(500).send(err)
+                }
+                else if(!data||data.length===0){
+                    googleUser.create({
+                        name:name,
+                        email:email,
+                        verified: true
+                    })
+                }
+                res.status(200).send({
+                    name: name,
+                    email:email,
+                    verified: true
+                })
+            })
+        }else{
+            res.status(500).send({error:"Something went wrong..."})
+        }
+        console.log(response.payload)
+    })
+    
+})
+var transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: 'rahulgupta201299@gmail.com',
+      pass: 'rg810943@gmail.com'
+    }
+  });
+  
+  
+app.post('/user/register',(req,res)=>{
+    const {name,email,password}=req.body
+    const random=Math.floor(100000 + Math.random() * 900000)
+    var mailOptions = {
+        from: 'rg810943@gmail.com',
+        to: email,
+        subject: 'Verification Code',
+        text: `Dear ${name}, Your Verification code is ${random}`
+      };
+    Users.find({email:email},(err,data)=>{
+        if(err){
+            res.status(500).send(err)
+        }
+        else if(data.length===0){
+            Users.create({
+                name: name,
+                email:email,
+                rand: random,
+                password: passwordHash.generate(password),
+                verified: false,
+            })
+            transporter.sendMail(mailOptions, function(error, info){
+                if (error) {
+                  console.log(error);
+                } else {
+                  console.log('Email sent: ' + info.response);
+                }
+            });
+            res.status(200).send({
+                name:name,
+                email:email,
+                verified:false,
+                message: 'You are registered.Please Verify!',
+                rand: random,
+                account: false
+            })
+        }
+        else{
+            res.status(200).send({
+                name:name,
+                email:email,
+                verified: data.verified,
+                message: 'This email is already in use. Please Login or try with another account!',
+                account: true
+            })
+        }
+    })
+})
+app.post('/user/verificationCode',(req,res)=>{
+    const {email}=req.body;
+    Users.find({email:email},(err,data)=>{
+        if(err){
+            res.status(500).send(err);
+        }else{
+            Users.updateOne({email:email},{verified:true},(err)=>{
+                if(err){
+                    res.status(500).send(err)
+                }else{
+                    res.status(200).send({
+                        name: data[0].name,
+                        email: data[0].email,
+                        verified: true
+                    })
+                }
+            })
+        }
+    })
+})
+app.post('/user/login',(req,res)=>{
+    const {email,password} = req.body
+    const random=Math.floor(100000 + Math.random() * 900000)
+    var mailOptions = {
+        from: 'rg810943@gmail.com',
+        to: email,
+        subject: 'Verification Code',
+        text: `Dear User, Your Verification code is ${random}`
+      };
+    Users.find({email:email},(err,data)=>{
+        if(err){
+            res.status(500).send(err)
+        }else if(data.length){
+            if(!data[0].verified&&passwordHash.verify(password, data[0].password)){
+                transporter.sendMail(mailOptions, function(error, info){
+                    if (error) {
+                      console.log(error);
+                    } else {
+                      console.log('Email sent: ' + info.response);
+                    }
+                });
+            }
+            res.status(200).send({
+                name:data[0].name,
+                email:data[0].email,
+                verified: data[0].verified,
+                password: passwordHash.verify(password, data[0].password),
+                account: true
+            })
+        }else{
+            res.status(200).send({
+                account:false,
+                message: 'Please register!'
+            })
+        }
+    })
+})
+app.post("/user/resendcode",(req,res)=>{
+    const {email}=req.body
+    const random=Math.floor(100000 + Math.random() * 900000)
+    var mailOptions = {
+        from: 'rg810943@gmail.com',
+        to: email,
+        subject: 'Verification Code',
+        text: `Dear User, Your Verification code is ${random}`
+      };
+    Users.find({email:email},(err,data)=>{
+        if(err){
+            res.status(500).send(err)
+        }else{
+            transporter.sendMail(mailOptions, function(error, info){
+                if (error) {
+                  console.log(error);
+                } else {
+                  console.log('Email sent: ' + info.response);
+                }
+            });
+            res.status(200).send({
+                rand:random,
+                name:data[0].name,
+                email:data[0].email,
+            })
+        }
+    })
 })
 app.listen(port,()=>console.log(`listening to port ${port}`))
