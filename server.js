@@ -32,6 +32,8 @@ const ProductSchema=mongoose.Schema({
     discount: Number,
     price: Number,
     unit: String,
+    ExtraImages: Array,
+    others: Array,
 })
 const Product=mongoose.model("products", ProductSchema)
 app.get('/products',(req,res)=>{
@@ -275,4 +277,118 @@ app.post("/user/resendcode",(req,res)=>{
         }
     })
 })
+app.post('/product/EachItem',(req,res)=>{
+    const {id}=req.body
+    Product.find({_id:id},(err,data)=>{
+        if(err){
+            res.status(500).send(err)
+        }else{
+            res.status(200).send(data)
+        }
+    })
+})
+app.get("/search/suggestion",(req,res)=>{
+    const search=req.query.name
+    Product.find({ $or: [{ name: { $regex:  search, $options: 'i'} }, { category: { $regex:  search, $options: 'i'} },{ SubCategory: { $regex:  search, $options: 'i'} }] }).then(data=>{
+        res.status(200).send(data)
+    })
+})
+
+const userDetailSchema=mongoose.Schema({
+    email: String,
+    phone: String,
+    Address: String,
+    Pincode: String,
+})
+const userDetail=mongoose.model("checkoutdetails",userDetailSchema)
+app.get("/user/phone",(req,res)=>{
+    const email=req.query.name
+    userDetail.find({email:email},(err,data)=>{
+        if(err){
+            res.status(500).send(err)
+        }else{
+            if(!data.length){
+                res.status(200).send({message:false})
+            }else{
+                //console.log(data)
+                res.status(200).send({
+                    message: true,
+                    phone: data[0].phone
+                })
+            }
+        }
+    })
+})
+app.post('/user/phone',(req,res)=>{
+    const {email,phone}=req.body
+    userDetail.find({email:email},(err,data)=>{
+        if(err){
+            res.status(500).send(err)
+        }else{
+            if(!data.length){
+                userDetail.create({
+                    email: email,
+                    phone:phone,
+                    Address: "",
+                    Pincode: ""
+                })
+                res.status(200).send({message: true})
+            }else{
+                userDetail.updateOne({email:email},{phone:phone},(err)=>{
+                    if(err){
+                        res.status(500).send(err)
+                    }else{
+                        res.status(200).send(data)
+                    }
+                })
+            }
+        }
+    })
+})
+app.get("/user/address",(req,res)=>{
+    const email=req.query.name
+    userDetail.find({email:email},(err,data)=>{
+        if(err){
+            res.status(500).send(err)
+        }else{
+            if(!data.length){
+                res.status(200).send({message:false})
+            }else{
+                //console.log(data)
+                res.status(200).send({
+                    message: true,
+                    Address: data[0].Address,
+                    Pincode: data[0].Pincode
+                })
+            }
+        }
+    })
+})
+app.post('/user/address',(req,res)=>{
+    const {email,address,pincode}=req.body
+    userDetail.find({email:email},(err,data)=>{
+        if(err){
+            res.status(500).send(err)
+        }else{
+            if(!data.length){
+                userDetail.create({
+                    email: email,
+                    phone:"",
+                    Address: address,
+                    Pincode: pincode
+                })
+                res.status(200).send({message: true})
+            }else{
+                userDetail.updateOne({email:email},{Address:address,Pincode:pincode},(err)=>{
+                    if(err){
+                        res.status(500).send(err)
+                    }else{
+                        res.status(200).send(data)
+                    }
+                })
+            }
+        }
+    })
+})
+
 app.listen(port,()=>console.log(`listening to port ${port}`))
