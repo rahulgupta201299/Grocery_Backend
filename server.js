@@ -3,8 +3,13 @@ import mongoose from 'mongoose'
 import {OAuth2Client} from 'google-auth-library'
 import nodemailer from 'nodemailer'
 import passwordHash from 'password-hash'
-const client=new OAuth2Client('177141942485-mbmruj6ns91r1e8eh02vnm05m3gonop8.apps.googleusercontent.com')
-const connection_url="mongodb+srv://rahul2012999:Rahul@1234@cluster0.uqevw.mongodb.net/myFirstDatabase?retryWrites=true&w=majority"
+import Razorpay from 'razorpay'
+import shortid from 'shortid'
+import dotenv from 'dotenv'
+import crypto from 'crypto'
+dotenv.config()
+const client=new OAuth2Client(process.env.GOOGLE_API)
+const connection_url=process.env.MONGOOSE
 const app=express()
 
 app.use((req,res,next)=>{
@@ -108,7 +113,7 @@ const googleSchema=mongoose.Schema({
 const googleUser=mongoose.model('googleloginusers',googleSchema)
 app.post("/api/googlelogin",(req,res)=>{
     const {tokenID}=req.body
-    client.verifyIdToken({idToken: tokenID,audience: '177141942485-mbmruj6ns91r1e8eh02vnm05m3gonop8.apps.googleusercontent.com'}).then(response=>{
+    client.verifyIdToken({idToken: tokenID,audience: process.env.GOOGLE_API}).then(response=>{
         const {email_verified,name,email}=response.payload
         if(email_verified){
             googleUser.find({email:email},(err,data)=>{
@@ -138,8 +143,8 @@ app.post("/api/googlelogin",(req,res)=>{
 var transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-      user: 'rahulgupta201299@gmail.com',
-      pass: 'rg810943@gmail.com'
+      user: process.env.EMAIL,
+      pass: process.env.PASSWORD
     }
   });
   
@@ -148,7 +153,7 @@ app.post('/user/register',(req,res)=>{
     const {name,email,password}=req.body
     const random=Math.floor(100000 + Math.random() * 900000)
     var mailOptions = {
-        from: 'rg810943@gmail.com',
+        from: process.env.EMAIL,
         to: email,
         subject: 'Verification Code',
         text: `Dear ${name}, Your Verification code is ${random}`
@@ -216,7 +221,7 @@ app.post('/user/login',(req,res)=>{
     const {email,password} = req.body
     const random=Math.floor(100000 + Math.random() * 900000)
     var mailOptions = {
-        from: 'rg810943@gmail.com',
+        from: process.env.EMAIL,
         to: email,
         subject: 'Verification Code',
         text: `Dear User, Your Verification code is ${random}`
@@ -233,14 +238,23 @@ app.post('/user/login',(req,res)=>{
                       console.log('Email sent: ' + info.response);
                     }
                 });
+                res.status(200).send({
+                    name:data[0].name,
+                    email:data[0].email,
+                    verified: data[0].verified,
+                    rand: random,
+                    password: passwordHash.verify(password, data[0].password),
+                    account: true
+                })
+            }else{
+                res.status(200).send({
+                    name:data[0].name,
+                    email:data[0].email,
+                    verified: data[0].verified,
+                    password: passwordHash.verify(password, data[0].password),
+                    account: true
+                })
             }
-            res.status(200).send({
-                name:data[0].name,
-                email:data[0].email,
-                verified: data[0].verified,
-                password: passwordHash.verify(password, data[0].password),
-                account: true
-            })
         }else{
             res.status(200).send({
                 account:false,
@@ -253,7 +267,7 @@ app.post("/user/resendcode",(req,res)=>{
     const {email}=req.body
     const random=Math.floor(100000 + Math.random() * 900000)
     var mailOptions = {
-        from: 'rg810943@gmail.com',
+        from: process.env.EMAIL,
         to: email,
         subject: 'Verification Code',
         text: `Dear User, Your Verification code is ${random}`
@@ -387,6 +401,94 @@ app.post('/user/address',(req,res)=>{
                     }
                 })
             }
+        }
+    })
+})
+const UserOrdersPlaced=mongoose.Schema({
+    name: String,
+    email: String,
+    contact: String,
+    TotalAmount: Number,
+    items: Array,
+    DeliveryDate: String,
+    COD: Boolean,
+    PaymentReceived: Boolean,
+    OrderCompleted: Boolean
+})
+const Orders=mongoose.model("ordersplaced",UserOrdersPlaced)
+const razorpay =new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_SECRET_ID
+})
+
+app.post('/razorpay',async (req,res)=>{
+    const payment_capture=1
+    const amount=req.body.amount
+    const currency='INR'
+    const options={
+        amount: amount*100,
+        currency,
+        receipt: shortid.generate(),
+        payment_capture
+    }
+    try{
+        const response = await razorpay.orders.create(options)
+        console.log(response)
+        res.status(200).send({
+            id: response.id
+        })
+    }catch(error){
+        console.log(error)
+    }
+
+})
+//webhook in razorpay (later)
+app.post('/verification',(req,res)=>{
+    const secret= 'Rahul@1234'
+    const shasum=crypto.createHmac('sha256',secret)
+    shasum.update(JSON.stringify(req.body))
+    const digest=shasum.digest('hex')
+    if(digest===req.headers['x-razorpay-signature']){
+        res.status(200).send({message: 'payment done!',payment:true})
+    }else{
+        res.status(200).send({message:'Payment Failed!',payment:false})
+    }
+    res.status(200).send({status: 'ok'})
+})
+//till here
+app.post('/user/payment',(req,res)=>{
+    const {name,email,contact,items,dod,totalAmount,PaymentOnline}=req.body
+    Orders.create({
+        name:name,
+        email:email,
+        contact: contact,
+        TotalAmount: totalAmount,
+        items: items,
+        DeliveryDate:dod,
+        COD: true,
+        PaymentReceived: PaymentOnline,
+        OrderCompleted: false
+    })
+    res.status(200).send({status: 'ok'})
+})
+app.post('/payment/pendingcheck',(req,res)=>{
+    Orders.find({email:req.body.email},(err,data)=>{
+        if(err){
+            res.status(500).send(err)
+        }else if(data.length){
+            let flag=0;
+            for(let i of data){
+                if(i.OrderCompleted===false){
+                    flag=1;
+                }
+            }
+            if(flag){
+                res.status(200).send({pending: true})
+            }else{
+                res.status(200).send({pending: false})
+            }
+        }else{
+            res.status(200).send({pending: false})
         }
     })
 })
