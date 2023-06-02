@@ -22,7 +22,7 @@ mongoose.connect(connection_url,{
     useCreateIndex: true,
     useUnifiedTopology: true
 })
-const port=process.env.PORT||8000
+const port=process.env.PORT||8002
 app.use(express.static('../ecommerce/build'))
 
 app.use(express.json())
